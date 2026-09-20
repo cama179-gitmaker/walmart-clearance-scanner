@@ -10,11 +10,11 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Filtering Criteria
-MIN_DISCOUNT_PERCENT = 35  # Alert threshold
+MIN_DISCOUNT_PERCENT = 35  # Minimum discount percentage to alert
 REQUIRE_WALMART_SELLER = True  # Ignore 3rd-party marketplace sellers
 SEEN_DEALS_FILE = "seen_deals.json"
 
-# Targets on Walmart.ca (Structured as dictionaries)
+# Target Clearance Endpoints on Walmart.ca
 CATEGORIES_TO_SCRAPE = [
     {
         "name": "General Clearance",
@@ -26,12 +26,13 @@ CATEGORIES_TO_SCRAPE = [
     },
     {
         "name": "Toys Search Clearance",
-        "url": "https://www.walmart.ca/en/search?q=clearance+toys",
+        "url": "https://www.walmart.ca/en/search?q=clearance+toys&facet=special_offers%3AClearance",
     },
 ]
 
 
 def load_seen_deals():
+    """Loads previously alerted deal IDs from seen_deals.json."""
     if os.path.exists(SEEN_DEALS_FILE):
         try:
             with open(SEEN_DEALS_FILE, "r") as f:
@@ -42,11 +43,13 @@ def load_seen_deals():
 
 
 def save_seen_deals(seen_set):
+    """Saves updated deal IDs back to seen_deals.json."""
     with open(SEEN_DEALS_FILE, "w") as f:
         json.dump(list(seen_set), f)
 
 
 def send_telegram_alert(title, current_price, original_price, discount, url):
+    """Formats and sends Telegram alert messages."""
     message = (
         f"🚨 <b>WALMART.CA CLEARANCE DROP!</b> 🚨\n\n"
         f"📦 <b>Item:</b> {title}\n"
@@ -66,18 +69,25 @@ def send_telegram_alert(title, current_price, original_price, discount, url):
         "disable_web_page_preview": False,
     }
     try:
-        requests.post(telegram_url, json=payload, timeout=10)
+        response = requests.post(telegram_url, json=payload, timeout=10)
+        if response.status_code == 200:
+            print(f"Telegram alert sent for: {title}")
+        else:
+            print(f"Telegram API response error: {response.status_code} - {response.text}")
     except Exception as e:
         print(f"Failed to send Telegram message: {e}")
 
 
 def fetch_walmart_page(target_url):
-    """Passes request through ScraperAPI with render=true to process client JS."""
+    """
+    Passes request through ScraperAPI.
+    Note: 'render': 'false' consumes 1 API credit per call (vs 5 credits with render='true').
+    """
     payload = {
         "api_key": SCRAPER_API_KEY,
         "url": target_url,
         "country_code": "ca",
-        "render": "true",
+        "render": "false",
     }
     try:
         response = requests.get(
@@ -106,13 +116,12 @@ def run_scanner():
 
         soup = BeautifulSoup(html, "html.parser")
 
-        # Fallback multi-selector strategy to catch variations in Walmart layout
+        # Primary card selector with fallback to product URLs (/ip/)
         product_cards = soup.find_all(
             "div", {"data-item-id": True}
         ) or soup.find_all("div", {"data-automation-id": "product-tile"})
 
         if not product_cards:
-            # Fallback search for anchor elements leading to product pages
             product_cards = [
                 a.parent
                 for a in soup.find_all("a", href=re.compile(r"/ip/"))
@@ -123,7 +132,7 @@ def run_scanner():
 
         for card in product_cards:
             try:
-                # Extract URL & ID
+                # Extract Product Link & Unique Item ID
                 link_elem = card.find("a", href=re.compile(r"/ip/"))
                 if not link_elem or "href" not in link_elem.attrs:
                     continue
@@ -145,7 +154,7 @@ def run_scanner():
                     else relative_url
                 )
 
-                # Extract Title
+                # Extract Product Title
                 title_elem = card.find(
                     "span", {"data-automation-id": "product-title"}
                 ) or card.find("p")
@@ -153,10 +162,14 @@ def run_scanner():
                     continue
                 title = title_elem.text.strip()
 
-                # Extract Prices via regex matching on inner card text
                 card_text = card.get_text(separator=" ")
 
-                now_match = re.search(r"(?:Now|Price)\s*\$([\d\.]+)", card_text)
+                # Exclude explicitly out-of-stock items if present
+                if "out of stock" in card_text.lower():
+                    continue
+
+                # Extract Current and Regular Prices
+                now_match = re.search(r"(?:Now|Price)\s*\$([\d\.]+)", card_text, re.IGNORECASE)
                 was_match = re.search(r"was\s*\$([\d\.]+)", card_text, re.IGNORECASE)
 
                 if not now_match or not was_match:
@@ -180,6 +193,7 @@ def run_scanner():
                 ):
                     continue
 
+                # Alert Evaluation
                 if discount >= MIN_DISCOUNT_PERCENT:
                     print(
                         f"DEAL FOUND: {title} (-{discount:.0f}%) -> ${current_price:.2f}"
