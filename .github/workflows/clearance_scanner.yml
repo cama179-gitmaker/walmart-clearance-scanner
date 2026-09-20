@@ -2,7 +2,7 @@ name: Walmart Clearance Scanner
 
 on:
   schedule:
-    - cron: '*/60 * * * *'
+    - cron: '0 */3 * * *'  # Runs every 3 hours (8 times/day)
   workflow_dispatch:
 
 jobs:
@@ -10,13 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
