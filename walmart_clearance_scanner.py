@@ -14,15 +14,19 @@ MIN_DISCOUNT_PERCENT = 35  # Alert threshold
 REQUIRE_WALMART_SELLER = True  # Ignore 3rd-party marketplace sellers
 SEEN_DEALS_FILE = "seen_deals.json"
 
-# Targets on Walmart.ca
-TARGET_CATEGORIES = [
+# Targets on Walmart.ca (Structured as dictionaries)
+CATEGORIES_TO_SCRAPE = [
     {
         "name": "General Clearance",
-        "url": "https://www.walmart.ca/en/shop/clearance/6000204800999",
+        "url": "https://www.walmart.ca/en/clearance/N-101",
     },
     {
         "name": "Toys Clearance",
-        "url": "https://www.walmart.ca/en/cp/toys/10011?facet=special_offers%3AClearance",
+        "url": "https://www.walmart.ca/en/toys/clearance/N-1081",
+    },
+    {
+        "name": "Toys Search Clearance",
+        "url": "https://www.walmart.ca/en/search?q=clearance+toys",
     },
 ]
 
@@ -68,7 +72,7 @@ def send_telegram_alert(title, current_price, original_price, discount, url):
 
 
 def fetch_walmart_page(target_url):
-    """Passes the request through ScraperAPI with Canadian residential proxy rendering."""
+    """Passes request through ScraperAPI with render=true to process client JS."""
     payload = {
         "api_key": SCRAPER_API_KEY,
         "url": target_url,
@@ -81,7 +85,7 @@ def fetch_walmart_page(target_url):
         )
         if response.status_code == 200:
             return response.text
-        print(f"ScraperAPI returned status code: {response.status_code}")
+        print(f"ScraperAPI status code: {response.status_code}")
     except Exception as e:
         print(f"Network error fetching page: {e}")
     return None
@@ -94,7 +98,7 @@ def run_scanner():
 
     seen_deals = load_seen_deals()
 
-    for category in TARGET_CATEGORIES:
+    for category in CATEGORIES_TO_SCRAPE:
         print(f"Scanning category: {category['name']}...")
         html = fetch_walmart_page(category["url"])
         if not html:
@@ -102,55 +106,91 @@ def run_scanner():
 
         soup = BeautifulSoup(html, "html.parser")
 
-        # Walmart renders product cards using data attributes
-        product_cards = soup.find_all("div", {"data-item-id": True})
+        # Fallback multi-selector strategy to catch variations in Walmart layout
+        product_cards = soup.find_all(
+            "div", {"data-item-id": True}
+        ) or soup.find_all("div", {"data-automation-id": "product-tile"})
+
+        if not product_cards:
+            # Fallback search for anchor elements leading to product pages
+            product_cards = [
+                a.parent
+                for a in soup.find_all("a", href=re.compile(r"/ip/"))
+                if a.parent
+            ]
+
+        print(f"Found {len(product_cards)} candidate product cards.")
 
         for card in product_cards:
             try:
-                item_id = card.get("data-item-id")
-                if item_id in seen_deals:
+                # Extract URL & ID
+                link_elem = card.find("a", href=re.compile(r"/ip/"))
+                if not link_elem or "href" not in link_elem.attrs:
                     continue
 
-                title_elem = card.find("span", {"data-automation-id": "product-title"})
+                relative_url = link_elem["href"]
+                item_id_match = re.search(r"/ip/(?:.*/)?(\d+)", relative_url)
+                item_id = (
+                    item_id_match.group(1)
+                    if item_id_match
+                    else card.get("data-item-id")
+                )
+
+                if not item_id or item_id in seen_deals:
+                    continue
+
+                item_url = (
+                    f"https://www.walmart.ca{relative_url}"
+                    if relative_url.startswith("/")
+                    else relative_url
+                )
+
+                # Extract Title
+                title_elem = card.find(
+                    "span", {"data-automation-id": "product-title"}
+                ) or card.find("p")
                 if not title_elem:
                     continue
                 title = title_elem.text.strip()
 
-                link_elem = card.find("a", href=True)
-                if not link_elem:
-                    continue
-                
-                item_url = (
-                    f"https://www.walmart.ca{link_elem['href']}"
-                    if link_elem["href"].startswith("/")
-                    else link_elem["href"]
-                )
+                # Extract Prices via regex matching on inner card text
+                card_text = card.get_text(separator=" ")
 
-                current_price_elem = card.find("div", {"data-automation-id": "product-price"})
-                was_price_elem = card.find("div", {"class": re.compile(".*was.*")})
+                now_match = re.search(r"(?:Now|Price)\s*\$([\d\.]+)", card_text)
+                was_match = re.search(r"was\s*\$([\d\.]+)", card_text, re.IGNORECASE)
 
-                if not current_price_elem or not was_price_elem:
+                if not now_match or not was_match:
                     continue
 
-                current_price = float(re.sub(r"[^\d.]", "", current_price_elem.text))
-                original_price = float(re.sub(r"[^\d.]", "", was_price_elem.text))
+                current_price = float(now_match.group(1))
+                original_price = float(was_match.group(1))
 
                 if original_price <= current_price or original_price == 0:
                     continue
 
-                discount = ((original_price - current_price) / original_price) * 100
+                discount = (
+                    (original_price - current_price) / original_price
+                ) * 100.0
 
                 # Seller Validation
-                seller_text = card.get_text()
-                if REQUIRE_WALMART_SELLER and "Sold by" in seller_text and "Walmart" not in seller_text:
+                if (
+                    REQUIRE_WALMART_SELLER
+                    and "Sold by" in card_text
+                    and "Walmart" not in card_text
+                ):
                     continue
 
                 if discount >= MIN_DISCOUNT_PERCENT:
-                    print(f"DEAL FOUND: {title} (-{discount:.0f}%)")
-                    send_telegram_alert(title, current_price, original_price, discount, item_url)
+                    print(
+                        f"DEAL FOUND: {title} (-{discount:.0f}%) -> ${current_price:.2f}"
+                    )
+                    send_telegram_alert(
+                        title, current_price, original_price, discount, item_url
+                    )
                     seen_deals.add(item_id)
 
-            except Exception as e:
+            except Exception as err:
+                print(f"Error parsing product card: {err}")
                 continue
 
     save_seen_deals(seen_deals)
