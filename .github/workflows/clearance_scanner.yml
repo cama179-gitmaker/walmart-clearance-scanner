@@ -30,7 +30,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python walmart_clearance_scanner.py
 
-     - name: Commit and push updated seen deals
+      - name: Commit and push updated seen deals
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
