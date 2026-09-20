@@ -2,7 +2,7 @@ name: Walmart Clearance Scanner
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/60 * * * *'
   workflow_dispatch:
 
 jobs:
