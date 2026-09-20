@@ -17,19 +17,18 @@ SEEN_DEALS_FILE = "seen_deals.json"
 # Target Clearance Endpoints on Walmart.ca
 CATEGORIES_TO_SCRAPE = [
     {
-        "name": "General Clearance",
-        "url": "https://www.walmart.ca/en/clearance/N-101",
+        "name": "General Clearance Search",
+        "url": "https://www.walmart.ca/en/search?q=clearance&facet=special_offers%3AClearance",
     },
     {
-        "name": "Toys Clearance",
-        "url": "https://www.walmart.ca/en/toys/clearance/N-1081",
+        "name": "Toys Clearance Search",
+        "url": "https://www.walmart.ca/en/search?q=toys&facet=special_offers%3AClearance",
     },
     {
-        "name": "Toys Search Clearance",
-        "url": "https://www.walmart.ca/en/search?q=clearance+toys&facet=special_offers%3AClearance",
+        "name": "Video Games & Electronics Clearance",
+        "url": "https://www.walmart.ca/en/search?q=electronics&facet=special_offers%3AClearance",
     },
 ]
-
 
 def load_seen_deals():
     """Loads previously alerted deal IDs from seen_deals.json."""
