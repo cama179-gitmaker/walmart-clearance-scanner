@@ -30,9 +30,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python walmart_clearance_scanner.py
 
-      - name: Commit and Push Updated seen_deals.json
+     - name: Commit and push updated seen deals
         run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add seen_deals.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update seen deals list [skip ci]" && git push)
+          git commit -m "Update seen clearance deals" || exit 0
+          git push
