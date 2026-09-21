@@ -21,8 +21,16 @@ CATEGORIES_TO_SCRAPE = [
         "url": "https://www.walmart.ca/en/search?q=clearance&facet=special_offers%3AClearance",
     },
     {
-        "name": "Toys Clearance Search",
-        "url": "https://www.walmart.ca/en/search?q=toys&facet=special_offers%3AClearance",
+        "name": "LEGO Clearance",
+        "url": "https://www.walmart.ca/en/search?q=lego&facet=special_offers%3AClearance",
+    },
+    {
+        "name": "Playsets Clearance",
+        "url": "https://www.walmart.ca/en/search?q=playset&facet=special_offers%3AClearance",
+    },
+    {
+        "name": "Board Games Clearance",
+        "url": "https://www.walmart.ca/en/search?q=board+games&facet=special_offers%3AClearance",
     },
     {
         "name": "Video Games & Electronics Clearance",
