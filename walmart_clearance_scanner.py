@@ -17,10 +17,6 @@ SEEN_DEALS_FILE = "seen_deals.json"
 # Target Clearance Endpoints on Walmart.ca
 CATEGORIES_TO_SCRAPE = [
     {
-        "name": "General Clearance Search",
-        "url": "https://www.walmart.ca/en/search?q=clearance&facet=special_offers%3AClearance",
-    },
-    {
         "name": "LEGO Clearance",
         "url": "https://www.walmart.ca/en/search?q=lego&facet=special_offers%3AClearance",
     },
@@ -32,11 +28,8 @@ CATEGORIES_TO_SCRAPE = [
         "name": "Board Games Clearance",
         "url": "https://www.walmart.ca/en/search?q=board+games&facet=special_offers%3AClearance",
     },
-    {
-        "name": "Video Games & Electronics Clearance",
-        "url": "https://www.walmart.ca/en/search?q=electronics&facet=special_offers%3AClearance",
-    },
 ]
+
 
 def load_seen_deals():
     """Loads previously alerted deal IDs from seen_deals.json."""
@@ -80,15 +73,18 @@ def send_telegram_alert(title, current_price, original_price, discount, url):
         if response.status_code == 200:
             print(f"Telegram alert sent for: {title}")
         else:
-            print(f"Telegram API response error: {response.status_code} - {response.text}")
+            print(
+                f"Telegram API response error: {response.status_code} - {response.text}"
+            )
     except Exception as e:
         print(f"Failed to send Telegram message: {e}")
 
 
 def fetch_walmart_page(target_url):
-    """
-    Passes request through ScraperAPI.
-    Note: 'render': 'false' consumes 1 API credit per call (vs 5 credits with render='true').
+    """Passes request through ScraperAPI.
+
+    Note: 'render': 'false' consumes 1 API credit per call (vs 5 credits with
+    render='true').
     """
     payload = {
         "api_key": SCRAPER_API_KEY,
@@ -176,8 +172,12 @@ def run_scanner():
                     continue
 
                 # Extract Current and Regular Prices
-                now_match = re.search(r"(?:Now|Price)\s*\$([\d\.]+)", card_text, re.IGNORECASE)
-                was_match = re.search(r"was\s*\$([\d\.]+)", card_text, re.IGNORECASE)
+                now_match = re.search(
+                    r"(?:Now|Price)\s*\$([\d\.]+)", card_text, re.IGNORECASE
+                )
+                was_match = re.search(
+                    r"was\s*\$([\d\.]+)", card_text, re.IGNORECASE
+                )
 
                 if not now_match or not was_match:
                     continue
@@ -203,10 +203,15 @@ def run_scanner():
                 # Alert Evaluation
                 if discount >= MIN_DISCOUNT_PERCENT:
                     print(
-                        f"DEAL FOUND: {title} (-{discount:.0f}%) -> ${current_price:.2f}"
+                        f"DEAL FOUND: {title} (-{discount:.0f}%) ->"
+                        f" ${current_price:.2f}"
                     )
                     send_telegram_alert(
-                        title, current_price, original_price, discount, item_url
+                        title,
+                        current_price,
+                        original_price,
+                        discount,
+                        item_url,
                     )
                     seen_deals.add(item_id)
 
