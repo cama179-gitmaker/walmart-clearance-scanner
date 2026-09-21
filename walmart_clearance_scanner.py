@@ -14,19 +14,31 @@ MIN_DISCOUNT_PERCENT = 25  # Minimum discount percentage to alert
 REQUIRE_WALMART_SELLER = True  # Ignore 3rd-party marketplace sellers
 SEEN_DEALS_FILE = "seen_deals.json"
 
-# Target Clearance Endpoints on Walmart.ca
+# Target Clearance Endpoints on Walmart.ca (4 URLs = 32 credits/day at 8 runs/day)
 CATEGORIES_TO_SCRAPE = [
     {
         "name": "LEGO Clearance",
-        "url": "https://www.walmart.ca/en/search?q=lego&facet=special_offers%3AClearance",
+        "url": (
+            "https://www.walmart.ca/en/search?q=lego&facet=special_offers%3AClearance"
+        ),
     },
     {
-        "name": "Playsets Clearance",
-        "url": "https://www.walmart.ca/en/search?q=playset&facet=special_offers%3AClearance",
+        "name": "Dolls Clearance",
+        "url": (
+            "https://www.walmart.ca/en/search?q=dolls&facet=special_offers%3AClearance"
+        ),
     },
     {
         "name": "Board Games Clearance",
-        "url": "https://www.walmart.ca/en/search?q=board+games&facet=special_offers%3AClearance",
+        "url": (
+            "https://www.walmart.ca/en/search?q=board+games&facet=special_offers%3AClearance"
+        ),
+    },
+    {
+        "name": "Action Figures Clearance",
+        "url": (
+            "https://www.walmart.ca/en/search?q=action+figures&facet=special_offers%3AClearance"
+        ),
     },
 ]
 
