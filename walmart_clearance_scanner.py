@@ -10,7 +10,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Filtering Criteria
-MIN_DISCOUNT_PERCENT = 35  # Minimum discount percentage to alert
+MIN_DISCOUNT_PERCENT = 25  # Minimum discount percentage to alert
 REQUIRE_WALMART_SELLER = True  # Ignore 3rd-party marketplace sellers
 SEEN_DEALS_FILE = "seen_deals.json"
 
