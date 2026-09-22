@@ -17,37 +17,36 @@ SEEN_DEALS_FILE = "seen_deals.json"
 # 4 URLs with retailer=Walmart filter = 32 credits/day at 8 runs/day (under 1,000 monthly credits)
 CATEGORIES_TO_SCRAPE = [
     {
+        "name": "All Toys Clearance (Page 1)",
+        "url": (
+            "https://www.walmart.ca/en/search?q=toys&page=1&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
+        ),
+    },
+    {
+        "name": "All Toys Clearance (Page 2)",
+        "url": (
+            "https://www.walmart.ca/en/search?q=toys&page=2&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
+        ),
+    },
+    {
         "name": "LEGO Clearance",
         "url": (
             "https://www.walmart.ca/en/search?q=lego&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
     {
-        "name": "Hot Wheels & Vehicles Clearance",
+        "name": "Dolls & Playsets Clearance",
         "url": (
-            "https://www.walmart.ca/en/search?q=hot+wheels&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
+            "https://www.walmart.ca/en/search?q=dolls&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
     {
-        "name": "Board Games Clearance",
+        "name": "Vehicles & Hot Wheels Clearance",
         "url": (
-            "https://www.walmart.ca/en/search?q=board+games&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
-        ),
-    },
-    {
-        "name": "Action Figures Clearance",
-        "url": (
-            "https://www.walmart.ca/en/search?q=action+figures&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
-        ),
-    },
-    {
-        "name": "Toddler & Educational Clearance",
-        "url": (
-            "https://www.walmart.ca/en/search?q=toddler+toys&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
+            "https://www.walmart.ca/en/search?q=vehicles&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
 ]
-
 def load_seen_deals():
     """Loads previously alerted deal IDs from seen_deals.json."""
     if os.path.exists(SEEN_DEALS_FILE):
