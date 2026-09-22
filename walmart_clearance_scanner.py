@@ -1,246 +1,235 @@
-import json
 import os
 import re
+import json
 import requests
 from bs4 import BeautifulSoup
 
-# --- ENVIRONMENT CONFIGURATION ---
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# ==========================================
+# CONFIGURATION
+# ==========================================
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# Filtering Criteria
-MIN_DISCOUNT_PERCENT = 25  # Minimum discount percentage to alert
+MIN_DISCOUNT_PERCENT = 25.0
 SEEN_DEALS_FILE = "seen_deals.json"
 
-# Target Clearance Endpoints on Walmart.ca
-# 4 URLs with retailer=Walmart filter = 32 credits/day at 8 runs/day (under 1,000 monthly credits)
 CATEGORIES_TO_SCRAPE = [
     {
         "name": "All Toys Clearance (Page 1)",
-        "url": (
-            "https://www.walmart.ca/en/search?q=toys&page=1&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
-        ),
+        "url": "https://www.walmart.ca/en/search?q=toys&page=1&facet=special_offers:Clearance||retailer:Walmart"
     },
     {
         "name": "All Toys Clearance (Page 2)",
-        "url": (
-            "https://www.walmart.ca/en/search?q=toys&page=2&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
-        ),
+        "url": "https://www.walmart.ca/en/search?q=toys&page=2&facet=special_offers:Clearance||retailer:Walmart"
     },
     {
         "name": "LEGO Clearance",
-        "url": (
-            "https://www.walmart.ca/en/search?q=lego&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
-        ),
+        "url": "https://www.walmart.ca/en/search?q=lego&facet=special_offers:Clearance||retailer:Walmart"
     },
     {
         "name": "Dolls & Playsets Clearance",
-        "url": (
-            "https://www.walmart.ca/en/search?q=dolls&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
-        ),
+        "url": "https://www.walmart.ca/en/search?q=dolls&facet=special_offers:Clearance||retailer:Walmart"
     },
     {
         "name": "Vehicles & Hot Wheels Clearance",
-        "url": (
-            "https://www.walmart.ca/en/search?q=vehicles&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
-        ),
-    },
+        "url": "https://www.walmart.ca/en/search?q=vehicles&facet=special_offers:Clearance||retailer:Walmart"
+    }
 ]
+
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
 def load_seen_deals():
-    """Loads previously alerted deal IDs from seen_deals.json."""
+    """Loads existing deal IDs from seen_deals.json if present."""
     if os.path.exists(SEEN_DEALS_FILE):
         try:
-            with open(SEEN_DEALS_FILE, "r") as f:
+            with open(SEEN_DEALS_FILE, "r", encoding="utf-8") as f:
                 return set(json.load(f))
-        except Exception:
-            return set()
+        except Exception as e:
+            print(f"[!] Warning: Failed to load {SEEN_DEALS_FILE}: {e}")
     return set()
 
+def save_seen_deals(seen_ids):
+    """Saves updated deal IDs to seen_deals.json."""
+    try:
+        with open(SEEN_DEALS_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(seen_ids), f, indent=2)
+        print(f"[+] Saved {len(seen_ids)} total deal IDs to {SEEN_DEALS_FILE}")
+    except Exception as e:
+        print(f"[!] Error saving {SEEN_DEALS_FILE}: {e}")
 
-def save_seen_deals(seen_set):
-    """Saves updated deal IDs back to seen_deals.json."""
-    with open(SEEN_DEALS_FILE, "w") as f:
-        json.dump(list(seen_set), f)
-
-
-def send_telegram_alert(title, current_price, original_price, discount, url):
-    """Formats and sends Telegram alert messages."""
-    message = (
-        f"🚨 <b>WALMART.CA CLEARANCE DROP!</b> 🚨\n\n"
-        f"📦 <b>Item:</b> {title}\n"
-        f"💰 <b>Clearance Price:</b> ${current_price:.2f} CAD\n"
-        f"🏷️ <b>Was Price:</b> ${original_price:.2f} CAD\n"
-        f"🔥 <b>Discount:</b> {discount:.0f}% OFF\n\n"
-        f"🛒 <a href='{url}'><b>[CLICK HERE TO BUY ON WALMART.CA]</b></a>"
-    )
-
-    telegram_url = (
-        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    )
+def send_telegram_alert(message):
+    """Sends notification to Telegram group or chat."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("[!] Telegram credentials missing. Skipping notification.")
+        return
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": False
     }
     try:
-        response = requests.post(telegram_url, json=payload, timeout=10)
-        if response.status_code == 200:
-            print(f"Telegram alert sent for: {title}")
+        res = requests.post(url, json=payload, timeout=10)
+        if res.status_code == 200:
+            print("[+] Telegram alert sent successfully!")
         else:
-            print(
-                f"Telegram API response error: {response.status_code} - {response.text}"
-            )
+            print(f"[!] Telegram API error ({res.status_code}): {res.text}")
     except Exception as e:
-        print(f"Failed to send Telegram message: {e}")
+        print(f"[!] Exception while sending Telegram alert: {e}")
 
-
-def fetch_walmart_page(target_url):
-    """Passes request through ScraperAPI.
-
-    Note: 'render': 'false' consumes 1 API credit per call (vs 5 credits with
-    render='true').
+def parse_prices_from_text(card_text):
     """
-    payload = {
-        "api_key": SCRAPER_API_KEY,
-        "url": target_url,
-        "country_code": "ca",
-        "render": "false",
-    }
-    try:
-        response = requests.get(
-            "http://api.scraperapi.com", params=payload, timeout=60
-        )
-        if response.status_code == 200:
-            return response.text
-        print(f"ScraperAPI status code: {response.status_code}")
-    except Exception as e:
-        print(f"Network error fetching page: {e}")
-    return None
+    Extracts 'Now' price and calculates original 'Was' price using both
+    explicit strikethroughs and 'Now $X + You save $Y' fallbacks.
+    """
+    now_price = None
+    was_price = None
 
+    # Extract Now Price
+    now_match = re.search(r'Now\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
+    if now_match:
+        now_price = float(now_match.group(1))
+    else:
+        # Generic price extraction fallback
+        price_match = re.search(r'\$([0-9]+\.[0-9]{2})', card_text)
+        if price_match:
+            now_price = float(price_match.group(1))
 
-def run_scanner():
-    if not all([SCRAPER_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
-        print("ERROR: Missing required environment variables.")
+    # Try finding explicit Was / Regular Price
+    was_match = re.search(r'(?:Was|Strikethrough|Comp)\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
+    if was_match:
+        was_price = float(was_match.group(1))
+
+    # Fallback: Calculate Was Price via "You save $X.XX"
+    if now_price and not was_price:
+        save_match = re.search(r'You\s*save\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
+        if save_match:
+            saved_amount = float(save_match.group(1))
+            was_price = now_price + saved_amount
+
+    # Calculate Discount
+    if now_price and was_price and was_price > now_price:
+        discount_pct = ((was_price - now_price) / was_price) * 100.0
+    else:
+        discount_pct = 0.0
+
+    return now_price, was_price, round(discount_pct, 1)
+
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
+def main():
+    if not SCRAPER_API_KEY:
+        print("[!] SCRAPER_API_KEY environment variable is missing. Exiting.")
         return
 
     seen_deals = load_seen_deals()
+    new_deals_found = 0
+
+    print(f"[*] Starting scan across {len(CATEGORIES_TO_SCRAPE)} category endpoints...")
 
     for category in CATEGORIES_TO_SCRAPE:
-        print(f"Scanning category: {category['name']}...")
-        html = fetch_walmart_page(category["url"])
-        if not html:
-            continue
+        cat_name = category["name"]
+        target_url = category["url"]
 
-        soup = BeautifulSoup(html, "html.parser")
+        print(f"\nScanning category: {cat_name}...")
 
-        # Primary card selector with fallback to product URLs (/ip/)
-        product_cards = soup.find_all(
-            "div", {"data-item-id": True}
-        ) or soup.find_all("div", {"data-automation-id": "product-tile"})
+        # ScraperAPI Payload Configuration
+        scraper_api_url = "http://api.scraperapi.com"
+        params = {
+            "api_key": SCRAPER_API_KEY,
+            "url": target_url,
+            "render": "false",
+            "country_code": "ca"
+        }
 
-        if not product_cards:
-            product_cards = [
-                a.parent
-                for a in soup.find_all("a", href=re.compile(r"/ip/"))
-                if a.parent
-            ]
+        try:
+            resp = requests.get(scraper_api_url, params=params, timeout=60)
+            if resp.status_code != 200:
+                print(f"  [!] Failed to fetch URL (Status {resp.status_code}): {target_url}")
+                continue
 
-        print(f"Found {len(product_cards)} candidate product cards.")
+            soup = BeautifulSoup(resp.text, "html.parser")
+            
+            # Locate product tiles on Walmart Canada
+            product_cards = soup.find_all("div", {"data-item-id": True})
+            if not product_cards:
+                # Alternative fallback selector for Walmart Canada DOM
+                product_cards = soup.find_all("div", {"class": lambda x: x and "sans-serif" in x and "mb1" in x})
 
-        for card in product_cards:
-            try:
-                # Extract Product Link & Unique Item ID
-                link_elem = card.find("a", href=re.compile(r"/ip/"))
-                if not link_elem or "href" not in link_elem.attrs:
+            print(f"  Found {len(product_cards)} candidate product cards.")
+
+            for card in product_cards:
+                # Retrieve item unique ID
+                item_id = card.get("data-item-id")
+                if not item_id:
+                    link_tag = card.find("a", href=True)
+                    if link_tag:
+                        id_match = re.search(r'/([0-9]{8,15})', link_tag["href"])
+                        if id_match:
+                            item_id = id_match.group(1)
+
+                if not item_id:
                     continue
-
-                relative_url = link_elem["href"]
-                item_id_match = re.search(r"/ip/(?:.*/)?(\d+)", relative_url)
-                item_id = (
-                    item_id_match.group(1)
-                    if item_id_match
-                    else card.get("data-item-id")
-                )
-
-                if not item_id or item_id in seen_deals:
-                    continue
-
-                item_url = (
-                    f"https://www.walmart.ca{relative_url}"
-                    if relative_url.startswith("/")
-                    else relative_url
-                )
-
-                # Extract Product Title
-                title_elem = card.find(
-                    "span", {"data-automation-id": "product-title"}
-                ) or card.find("p")
-                if not title_elem:
-                    continue
-                title = title_elem.text.strip()
 
                 card_text = card.get_text(separator=" ")
 
-                # Exclude explicitly out-of-stock items
-                if "out of stock" in card_text.lower():
+                # Parse pricing structure
+                now_price, was_price, discount_pct = parse_prices_from_text(card_text)
+
+                # Diagnostic output
+                if discount_pct > 0:
+                    print(f"    [Card ID: {item_id}] Now: ${now_price} | Was: ${was_price} | Savings: {discount_pct}%")
+
+                # Filter Rule 1: Minimum Discount Threshold
+                if discount_pct < MIN_DISCOUNT_PERCENT:
                     continue
 
-                # Enhanced Price Parsing (Catches 'Now', 'Was', and 'You Save')
-                now_match = re.search(
-                    r"(?:Now|Price)?\s*\$([\d\.]+)", card_text, re.IGNORECASE
+                # Filter Rule 2: Already Processed Deal Check
+                if item_id in seen_deals:
+                    print(f"    [Skipped] Item ID {item_id} already sent previously.")
+                    continue
+
+                # Extract Title and Link
+                title = "Walmart Clearance Item"
+                title_tag = card.find("span", {"data-automation-id": "product-title"}) or card.find("a")
+                if title_tag:
+                    title = title_tag.get_text(strip=True)
+
+                link = f"https://www.walmart.ca/en/ip/{item_id}"
+                link_tag = card.find("a", href=True)
+                if link_tag and link_tag["href"].startswith("http"):
+                    link = link_tag["href"]
+                elif link_tag and link_tag["href"].startswith("/"):
+                    link = f"https://www.walmart.ca{link_tag['href']}"
+
+                # Format and Dispatch Alert
+                alert_msg = (
+                    f"🚨 *WALMART CLEARANCE DEAL FOUND!* 🚨\n\n"
+                    f"📦 *Product:* {title}\n"
+                    f"💰 *Now Price:* ${now_price:.2f}\n"
+                    f"🏷️ *Was Price:* ${was_price:.2f}\n"
+                    f"🔥 *Discount:* {discount_pct}%\n\n"
+                    f"🔗 [View Product on Walmart.ca]({link})"
                 )
-                was_match = re.search(
-                    r"was\s*\$([\d\.]+)", card_text, re.IGNORECASE
-                )
 
-                current_price = float(now_match.group(1)) if now_match else None
-                original_price = None
+                print(f"    [!] MATCH FOUND: {title} ({discount_pct}% off). Sending Telegram alert...")
+                send_telegram_alert(alert_msg)
 
-                if was_match:
-                    original_price = float(was_match.group(1))
-                else:
-                    # Fallback: Calculate original price using "You save $X.XX"
-                    save_match = re.search(
-                        r"save\s*\$([\d\.]+)", card_text, re.IGNORECASE
-                    )
-                    if save_match and current_price:
-                        savings = float(save_match.group(1))
-                        original_price = current_price + savings
+                # Track Seen Deal
+                seen_deals.add(item_id)
+                new_deals_found += 1
 
-                # Ensure both prices were extracted
-                if not current_price or not original_price:
-                    continue
+        except Exception as e:
+            print(f"  [!] Error parsing category {cat_name}: {e}")
 
-                if original_price <= current_price or original_price == 0:
-                    continue
-
-                discount = (
-                    (original_price - current_price) / original_price
-                ) * 100.0
-
-                # Alert Evaluation
-                if discount >= MIN_DISCOUNT_PERCENT:
-                    print(
-                        f"DEAL FOUND: {title} (-{discount:.0f}%) ->"
-                        f" ${current_price:.2f}"
-                    )
-                    send_telegram_alert(
-                        title,
-                        current_price,
-                        original_price,
-                        discount,
-                        item_url,
-                    )
-                    seen_deals.add(item_id)
-
-            except Exception as err:
-                print(f"Error parsing product card: {err}")
-                continue
-
+    # Persist updated deal list to repo
     save_seen_deals(seen_deals)
-
+    print(f"\n[*] Run complete. Total new alerts dispatched: {new_deals_found}")
 
 if __name__ == "__main__":
-    run_scanner()
+    main()
