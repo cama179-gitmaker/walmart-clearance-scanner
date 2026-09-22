@@ -23,9 +23,9 @@ CATEGORIES_TO_SCRAPE = [
         ),
     },
     {
-        "name": "Dolls Clearance",
+        "name": "Hot Wheels & Vehicles Clearance",
         "url": (
-            "https://www.walmart.ca/en/search?q=dolls&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
+            "https://www.walmart.ca/en/search?q=hot+wheels&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
     {
