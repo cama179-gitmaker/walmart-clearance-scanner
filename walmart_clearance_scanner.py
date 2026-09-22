@@ -11,33 +11,33 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Filtering Criteria
 MIN_DISCOUNT_PERCENT = 25  # Minimum discount percentage to alert
-REQUIRE_WALMART_SELLER = True  # Ignore 3rd-party marketplace sellers
 SEEN_DEALS_FILE = "seen_deals.json"
 
-# Target Clearance Endpoints on Walmart.ca (4 URLs = 32 credits/day at 8 runs/day)
+# Target Clearance Endpoints on Walmart.ca
+# 4 URLs with retailer=Walmart filter = 32 credits/day at 8 runs/day (under 1,000 monthly credits)
 CATEGORIES_TO_SCRAPE = [
     {
         "name": "LEGO Clearance",
         "url": (
-            "https://www.walmart.ca/en/search?q=lego&facet=special_offers%3AClearance"
+            "https://www.walmart.ca/en/search?q=lego&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
     {
         "name": "Dolls Clearance",
         "url": (
-            "https://www.walmart.ca/en/search?q=dolls&facet=special_offers%3AClearance"
+            "https://www.walmart.ca/en/search?q=dolls&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
     {
         "name": "Board Games Clearance",
         "url": (
-            "https://www.walmart.ca/en/search?q=board+games&facet=special_offers%3AClearance"
+            "https://www.walmart.ca/en/search?q=board+games&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
     {
         "name": "Action Figures Clearance",
         "url": (
-            "https://www.walmart.ca/en/search?q=action+figures&facet=special_offers%3AClearance"
+            "https://www.walmart.ca/en/search?q=action+figures&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
 ]
@@ -179,23 +179,35 @@ def run_scanner():
 
                 card_text = card.get_text(separator=" ")
 
-                # Exclude explicitly out-of-stock items if present
+                # Exclude explicitly out-of-stock items
                 if "out of stock" in card_text.lower():
                     continue
 
-                # Extract Current and Regular Prices
+                # Enhanced Price Parsing (Catches 'Now', 'Was', and 'You Save')
                 now_match = re.search(
-                    r"(?:Now|Price)\s*\$([\d\.]+)", card_text, re.IGNORECASE
+                    r"(?:Now|Price)?\s*\$([\d\.]+)", card_text, re.IGNORECASE
                 )
                 was_match = re.search(
                     r"was\s*\$([\d\.]+)", card_text, re.IGNORECASE
                 )
 
-                if not now_match or not was_match:
-                    continue
+                current_price = float(now_match.group(1)) if now_match else None
+                original_price = None
 
-                current_price = float(now_match.group(1))
-                original_price = float(was_match.group(1))
+                if was_match:
+                    original_price = float(was_match.group(1))
+                else:
+                    # Fallback: Calculate original price using "You save $X.XX"
+                    save_match = re.search(
+                        r"save\s*\$([\d\.]+)", card_text, re.IGNORECASE
+                    )
+                    if save_match and current_price:
+                        savings = float(save_match.group(1))
+                        original_price = current_price + savings
+
+                # Ensure both prices were extracted
+                if not current_price or not original_price:
+                    continue
 
                 if original_price <= current_price or original_price == 0:
                     continue
@@ -203,14 +215,6 @@ def run_scanner():
                 discount = (
                     (original_price - current_price) / original_price
                 ) * 100.0
-
-                # Seller Validation
-                if (
-                    REQUIRE_WALMART_SELLER
-                    and "Sold by" in card_text
-                    and "Walmart" not in card_text
-                ):
-                    continue
 
                 # Alert Evaluation
                 if discount >= MIN_DISCOUNT_PERCENT:
