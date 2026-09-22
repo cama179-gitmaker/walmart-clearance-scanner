@@ -40,8 +40,13 @@ CATEGORIES_TO_SCRAPE = [
             "https://www.walmart.ca/en/search?q=action+figures&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
         ),
     },
+    {
+        "name": "Toddler & Educational Clearance",
+        "url": (
+            "https://www.walmart.ca/en/search?q=toddler+toys&facet=special_offers%3AClearance%7C%7Cretailer%3AWalmart"
+        ),
+    },
 ]
-
 
 def load_seen_deals():
     """Loads previously alerted deal IDs from seen_deals.json."""
