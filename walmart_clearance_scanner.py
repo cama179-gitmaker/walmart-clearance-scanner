@@ -11,29 +11,37 @@ SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-MIN_DISCOUNT_PERCENT = 24.0
+MIN_DISCOUNT_PERCENT = 25.0
 SEEN_DEALS_FILE = "seen_deals.json"
 
 CATEGORIES_TO_SCRAPE = [
     {
-        "name": "All Toys Clearance (Page 1)",
-        "url": "https://www.walmart.ca/en/search?q=toys&page=1&facet=special_offers:Clearance||retailer:Walmart"
+        "name": "Toys & Games (Page 1)",
+        "url": "https://www.walmart.ca/en/search?q=toys&page=1&facet=retailer:Walmart"
     },
     {
-        "name": "All Toys Clearance (Page 2)",
-        "url": "https://www.walmart.ca/en/search?q=toys&page=2&facet=special_offers:Clearance||retailer:Walmart"
+        "name": "Toys & Games (Page 2)",
+        "url": "https://www.walmart.ca/en/search?q=toys&page=2&facet=retailer:Walmart"
     },
     {
-        "name": "LEGO Clearance",
-        "url": "https://www.walmart.ca/en/search?q=lego&facet=special_offers:Clearance||retailer:Walmart"
+        "name": "LEGO Deals",
+        "url": "https://www.walmart.ca/en/search?q=lego&facet=retailer:Walmart"
     },
     {
-        "name": "Dolls & Playsets Clearance",
-        "url": "https://www.walmart.ca/en/search?q=dolls&facet=special_offers:Clearance||retailer:Walmart"
+        "name": "Dolls & Playsets Deals",
+        "url": "https://www.walmart.ca/en/search?q=dolls&facet=retailer:Walmart"
     },
     {
-        "name": "Vehicles & Hot Wheels Clearance",
-        "url": "https://www.walmart.ca/en/search?q=vehicles&facet=special_offers:Clearance||retailer:Walmart"
+        "name": "Vehicles & Hot Wheels Deals",
+        "url": "https://www.walmart.ca/en/search?q=vehicles&facet=retailer:Walmart"
+    },
+    {
+        "name": "Board Games Deals",
+        "url": "https://www.walmart.ca/en/search?q=games&facet=retailer:Walmart"
+    },
+    {
+        "name": "Action Figures & Jurassic World",
+        "url": "https://www.walmart.ca/en/search?q=jurassic+world&facet=retailer:Walmart"
     }
 ]
 
@@ -94,7 +102,6 @@ def parse_prices_from_text(card_text):
     if now_match:
         now_price = float(now_match.group(1))
     else:
-        # Generic price extraction fallback
         price_match = re.search(r'\$([0-9]+\.[0-9]{2})', card_text)
         if price_match:
             now_price = float(price_match.group(1))
@@ -104,14 +111,14 @@ def parse_prices_from_text(card_text):
     if was_match:
         was_price = float(was_match.group(1))
 
-    # Fallback: Calculate Was Price via "You save $X.XX"
+    # Fallback: Calculate Was Price via "You save $X.XX" or generic strikethrough dollar amounts
     if now_price and not was_price:
-        save_match = re.search(r'You\s*save\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
+        save_match = re.search(r'save\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
         if save_match:
             saved_amount = float(save_match.group(1))
             was_price = now_price + saved_amount
 
-    # Calculate Discount
+    # Calculate Discount Percentage
     if now_price and was_price and was_price > now_price:
         discount_pct = ((was_price - now_price) / was_price) * 100.0
     else:
@@ -158,13 +165,11 @@ def main():
             # Locate product tiles on Walmart Canada
             product_cards = soup.find_all("div", {"data-item-id": True})
             if not product_cards:
-                # Alternative fallback selector for Walmart Canada DOM
                 product_cards = soup.find_all("div", {"class": lambda x: x and "sans-serif" in x and "mb1" in x})
 
             print(f"  Found {len(product_cards)} candidate product cards.")
 
             for card in product_cards:
-                # Retrieve item unique ID
                 item_id = card.get("data-item-id")
                 if not item_id:
                     link_tag = card.find("a", href=True)
@@ -178,12 +183,7 @@ def main():
 
                 card_text = card.get_text(separator=" ")
 
-                # Parse pricing structure
                 now_price, was_price, discount_pct = parse_prices_from_text(card_text)
-
-                # Diagnostic output
-                if discount_pct > 0:
-                    print(f"    [Card ID: {item_id}] Now: ${now_price} | Was: ${was_price} | Savings: {discount_pct}%")
 
                 # Filter Rule 1: Minimum Discount Threshold
                 if discount_pct < MIN_DISCOUNT_PERCENT:
@@ -195,7 +195,7 @@ def main():
                     continue
 
                 # Extract Title and Link
-                title = "Walmart Clearance Item"
+                title = "Walmart Deal Item"
                 title_tag = card.find("span", {"data-automation-id": "product-title"}) or card.find("a")
                 if title_tag:
                     title = title_tag.get_text(strip=True)
@@ -209,7 +209,7 @@ def main():
 
                 # Format and Dispatch Alert
                 alert_msg = (
-                    f"🚨 *WALMART CLEARANCE DEAL FOUND!* 🚨\n\n"
+                    f"🚨 *WALMART DEAL FOUND (≥{MIN_DISCOUNT_PERCENT:.0f}% OFF)* 🚨\n\n"
                     f"📦 *Product:* {title}\n"
                     f"💰 *Now Price:* ${now_price:.2f}\n"
                     f"🏷️ *Was Price:* ${was_price:.2f}\n"
@@ -220,14 +220,12 @@ def main():
                 print(f"    [!] MATCH FOUND: {title} ({discount_pct}% off). Sending Telegram alert...")
                 send_telegram_alert(alert_msg)
 
-                # Track Seen Deal
                 seen_deals.add(item_id)
                 new_deals_found += 1
 
         except Exception as e:
             print(f"  [!] Error parsing category {cat_name}: {e}")
 
-    # Persist updated deal list to repo
     save_seen_deals(seen_deals)
     print(f"\n[*] Run complete. Total new alerts dispatched: {new_deals_found}")
 
