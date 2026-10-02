@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import requests
 import urllib.parse
 from bs4 import BeautifulSoup
@@ -135,28 +136,26 @@ def main():
 
         print(f"\nScanning category: {cat_name}...")
 
-        # Construct safe ScraperAPI URL directly to avoid double-encoding issues
-        encoded_target_url = urllib.parse.quote_plus(target_url)
-        scraper_url = (
-            f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}"
-            f"&url={encoded_target_url}"
-            f"&render=true"
-            f"&country_code=ca"
-            f"&keep_headers=true"
-        )
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        # ScraperAPI Anti-Bot Bypass Payload
+        params = {
+            "api_key": SCRAPER_API_KEY,
+            "url": target_url,
+            "render": "true",
+            "antibot": "true",
+            "country_code": "ca"
         }
 
         try:
-            resp = requests.get(scraper_url, headers=headers, timeout=90)
+            # Send request using ScraperAPI's native parameter structure
+            resp = requests.get("http://api.scraperapi.com", params=params, timeout=120)
+            
             if resp.status_code != 200:
                 print(f"  [!] Failed to fetch URL (Status {resp.status_code}): {target_url}")
                 continue
 
             soup = BeautifulSoup(resp.text, "html.parser")
             
+            # Extract product tiles
             product_cards = soup.find_all("div", {"data-item-id": True})
             if not product_cards:
                 product_cards = soup.find_all("div", {"class": lambda x: x and "sans-serif" in x and "mb1" in x})
@@ -212,6 +211,9 @@ def main():
 
                 seen_deals.add(item_id)
                 new_deals_found += 1
+
+            # 3-second delay between endpoints to prevent rate throttling
+            time.sleep(3)
 
         except Exception as e:
             print(f"  [!] Error parsing category {cat_name}: {e}")
