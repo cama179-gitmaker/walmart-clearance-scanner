@@ -17,31 +17,31 @@ SEEN_DEALS_FILE = "seen_deals.json"
 CATEGORIES_TO_SCRAPE = [
     {
         "name": "Toys & Games (Page 1)",
-        "url": "https://www.walmart.ca/en/search?q=toys&page=1&facet=retailer:Walmart"
+        "url": "https://www.walmart.ca/en/search?q=toys&page=1&facet=retailer%3AWalmart"
     },
     {
         "name": "Toys & Games (Page 2)",
-        "url": "https://www.walmart.ca/en/search?q=toys&page=2&facet=retailer:Walmart"
+        "url": "https://www.walmart.ca/en/search?q=toys&page=2&facet=retailer%3AWalmart"
     },
     {
         "name": "LEGO Deals",
-        "url": "https://www.walmart.ca/en/search?q=lego&facet=retailer:Walmart"
+        "url": "https://www.walmart.ca/en/search?q=lego&facet=retailer%3AWalmart"
     },
     {
         "name": "Dolls & Playsets Deals",
-        "url": "https://www.walmart.ca/en/search?q=dolls&facet=retailer:Walmart"
+        "url": "https://www.walmart.ca/en/search?q=dolls&facet=retailer%3AWalmart"
     },
     {
         "name": "Vehicles & Hot Wheels Deals",
-        "url": "https://www.walmart.ca/en/search?q=vehicles&facet=retailer:Walmart"
+        "url": "https://www.walmart.ca/en/search?q=vehicles&facet=retailer%3AWalmart"
     },
     {
         "name": "Board Games Deals",
-        "url": "https://www.walmart.ca/en/search?q=games&facet=retailer:Walmart"
+        "url": "https://www.walmart.ca/en/search?q=games&facet=retailer%3AWalmart"
     },
     {
         "name": "Action Figures & Jurassic World",
-        "url": "https://www.walmart.ca/en/search?q=jurassic+world&facet=retailer:Walmart"
+        "url": "https://www.walmart.ca/en/search?q=jurassic+world&facet=retailer%3AWalmart"
     }
 ]
 
@@ -111,7 +111,7 @@ def parse_prices_from_text(card_text):
     if was_match:
         was_price = float(was_match.group(1))
 
-    # Fallback: Calculate Was Price via "You save $X.XX" or generic strikethrough dollar amounts
+    # Fallback: Calculate Was Price via "You save $X.XX"
     if now_price and not was_price:
         save_match = re.search(r'save\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
         if save_match:
@@ -145,17 +145,18 @@ def main():
 
         print(f"\nScanning category: {cat_name}...")
 
-        # ScraperAPI Payload Configuration
+        # ScraperAPI Payload Configuration (Bypasses 403 Forbidden)
         scraper_api_url = "http://api.scraperapi.com"
         params = {
             "api_key": SCRAPER_API_KEY,
             "url": target_url,
-            "render": "false",
+            "render": "true",          # JS rendering to bypass anti-bot challenges
+            "ultra_premium": "true",   # Routes request through residential proxies
             "country_code": "ca"
         }
 
         try:
-            resp = requests.get(scraper_api_url, params=params, timeout=60)
+            resp = requests.get(scraper_api_url, params=params, timeout=90)
             if resp.status_code != 200:
                 print(f"  [!] Failed to fetch URL (Status {resp.status_code}): {target_url}")
                 continue
