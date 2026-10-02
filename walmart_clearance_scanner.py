@@ -1,9 +1,7 @@
 import os
-import re
 import json
 import time
 import requests
-from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 # Configuration
@@ -50,7 +48,7 @@ def save_seen_deals(deals):
 
 def send_telegram_alert(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[!] Missing Telegram secrets, skipping alert.")
+        print("    [!] Missing Telegram secrets, skipping alert.")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -88,7 +86,7 @@ def scan_walmart():
     seen_deals = load_seen_deals()
     new_alerts = 0
 
-    print("[*] Launching Playwright Chromium instance...")
+    print("[*] Launching Playwright with network interception...")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -106,37 +104,40 @@ def scan_walmart():
             locale="en-CA",
         )
 
-        # Inject script to hide webdriver property
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
         page = context.new_page()
 
         for category in CATEGORIES:
             cat_name = category["name"]
             url = category["url"]
+            intercepted_products = []
+
+            # Handle background JSON responses
+            def handle_response(response):
+                try:
+                    if "application/json" in response.headers.get("content-type", ""):
+                        # Intercept search or page data payloads
+                        if "search" in response.url or "browse" in response.url or "graphql" in response.url:
+                            data = response.json()
+                            extracted = extract_items_from_json(data)
+                            if extracted:
+                                intercepted_products.extend(extracted)
+                except Exception:
+                    pass
+
+            page.on("response", handle_response)
 
             print(f"\nScanning category: {cat_name}...")
             try:
-                page.goto(url, timeout=45000, wait_until="domcontentloaded")
+                page.goto(url, timeout=45000, wait_until="networkidle")
                 
-                # Human-like pause for JS execution & hydration
-                time.sleep(5)
+                # Scroll down slightly to trigger lazy-loaded catalog requests
+                page.evaluate("window.scrollBy(0, 1000);")
+                time.sleep(3)
 
-                html_content = page.content()
-                soup = BeautifulSoup(html_content, "html.parser")
+                print(f"  [HTTP 200] Intercepted {len(intercepted_products)} raw items via API responses.")
 
-                products = []
-                script = soup.find("script", id="__NEXT_DATA__")
-                if script and script.string:
-                    try:
-                        data = json.loads(script.string)
-                        products = extract_items_from_json(data)
-                    except Exception as e:
-                        print(f"  [!] Failed to parse __NEXT_DATA__: {e}")
-
-                print(f"  [HTTP 200] Extracted {len(products)} candidate products.")
-
-                for prod in products:
+                for prod in intercepted_products:
                     if not isinstance(prod, dict):
                         continue
 
@@ -185,6 +186,9 @@ def scan_walmart():
 
             except Exception as e:
                 print(f"  [!] Exception during category scan: {e}")
+
+            # Remove listener for next category iteration
+            page.remove_listener("response", handle_response)
 
         browser.close()
 
