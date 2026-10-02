@@ -4,11 +4,11 @@ import json
 import time
 import requests
 from bs4 import BeautifulSoup
+from curl_cffi import requests as cffi_requests
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
@@ -45,6 +45,21 @@ CATEGORIES_TO_SCRAPE = [
         "url": "https://www.walmart.ca/en/browse/toys/action-figures-playsets/10011-20107?facet=retailer:Walmart"
     }
 ]
+
+# Standard realistic Chrome headers
+DEFAULT_HEADERS = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "max-age=0",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "none",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1"
+}
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -120,14 +135,13 @@ def parse_prices_from_text(card_text):
 # MAIN EXECUTION
 # ==========================================
 def main():
-    if not SCRAPER_API_KEY:
-        print("[!] SCRAPER_API_KEY environment variable is missing. Exiting.")
-        return
-
     seen_deals = load_seen_deals()
     new_deals_found = 0
 
-    print(f"[*] Starting scan across {len(CATEGORIES_TO_SCRAPE)} category endpoints...")
+    print(f"[*] Starting direct TLS-impersonated scan across {len(CATEGORIES_TO_SCRAPE)} categories...")
+
+    # Create a persistent session with Chrome 124 TLS impersonation
+    session = cffi_requests.Session(impersonate="chrome124")
 
     for category in CATEGORIES_TO_SCRAPE:
         cat_name = category["name"]
@@ -135,22 +149,12 @@ def main():
 
         print(f"\nScanning category: {cat_name}...")
 
-        # ScraperAPI parameters optimized for Walmart anti-bot bypass
-        params = {
-            "api_key": SCRAPER_API_KEY,
-            "url": target_url,
-            "render": "true",
-            "ultra_premium": "true",
-            "country_code": "ca"
-        }
-
         try:
-            # Send GET request without extra custom headers to prevent proxy mismatch
-            resp = requests.get("http://api.scraperapi.com", params=params, timeout=120)
+            # Perform direct HTTP GET mimicking modern Chrome browser
+            resp = session.get(target_url, headers=DEFAULT_HEADERS, timeout=30)
             
             if resp.status_code != 200:
                 print(f"  [!] Failed to fetch URL (Status {resp.status_code}): {target_url}")
-                print(f"      Response preview: {resp.text[:200]}")
                 continue
 
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -159,7 +163,7 @@ def main():
             if not product_cards:
                 product_cards = soup.find_all("div", {"class": lambda x: x and "sans-serif" in x and "mb1" in x})
 
-            print(f"  Found {len(product_cards)} candidate product cards.")
+            print(f"  [HTTP 200] Found {len(product_cards)} candidate product cards.")
 
             for card in product_cards:
                 item_id = card.get("data-item-id")
@@ -211,6 +215,7 @@ def main():
                 seen_deals.add(item_id)
                 new_deals_found += 1
 
+            # Brief pause between category endpoints to mimic natural browsing pacing
             time.sleep(3)
 
         except Exception as e:
