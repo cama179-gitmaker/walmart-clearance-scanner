@@ -2,6 +2,7 @@ import os
 import re
 import json
 import requests
+import urllib.parse
 from bs4 import BeautifulSoup
 
 # ==========================================
@@ -17,31 +18,31 @@ SEEN_DEALS_FILE = "seen_deals.json"
 CATEGORIES_TO_SCRAPE = [
     {
         "name": "Toys & Games (Page 1)",
-        "url": "https://www.walmart.ca/en/search?q=toys&page=1&facet=retailer%3AWalmart"
+        "url": "https://www.walmart.ca/en/search?q=toys&page=1&facet=retailer:Walmart"
     },
     {
         "name": "Toys & Games (Page 2)",
-        "url": "https://www.walmart.ca/en/search?q=toys&page=2&facet=retailer%3AWalmart"
+        "url": "https://www.walmart.ca/en/search?q=toys&page=2&facet=retailer:Walmart"
     },
     {
         "name": "LEGO Deals",
-        "url": "https://www.walmart.ca/en/search?q=lego&facet=retailer%3AWalmart"
+        "url": "https://www.walmart.ca/en/search?q=lego&facet=retailer:Walmart"
     },
     {
         "name": "Dolls & Playsets Deals",
-        "url": "https://www.walmart.ca/en/search?q=dolls&facet=retailer%3AWalmart"
+        "url": "https://www.walmart.ca/en/search?q=dolls&facet=retailer:Walmart"
     },
     {
         "name": "Vehicles & Hot Wheels Deals",
-        "url": "https://www.walmart.ca/en/search?q=vehicles&facet=retailer%3AWalmart"
+        "url": "https://www.walmart.ca/en/search?q=vehicles&facet=retailer:Walmart"
     },
     {
         "name": "Board Games Deals",
-        "url": "https://www.walmart.ca/en/search?q=games&facet=retailer%3AWalmart"
+        "url": "https://www.walmart.ca/en/search?q=games&facet=retailer:Walmart"
     },
     {
         "name": "Action Figures & Jurassic World",
-        "url": "https://www.walmart.ca/en/search?q=jurassic+world&facet=retailer%3AWalmart"
+        "url": "https://www.walmart.ca/en/search?q=jurassic+world&facet=retailer:Walmart"
     }
 ]
 
@@ -49,7 +50,6 @@ CATEGORIES_TO_SCRAPE = [
 # HELPER FUNCTIONS
 # ==========================================
 def load_seen_deals():
-    """Loads existing deal IDs from seen_deals.json if present."""
     if os.path.exists(SEEN_DEALS_FILE):
         try:
             with open(SEEN_DEALS_FILE, "r", encoding="utf-8") as f:
@@ -59,7 +59,6 @@ def load_seen_deals():
     return set()
 
 def save_seen_deals(seen_ids):
-    """Saves updated deal IDs to seen_deals.json."""
     try:
         with open(SEEN_DEALS_FILE, "w", encoding="utf-8") as f:
             json.dump(list(seen_ids), f, indent=2)
@@ -68,7 +67,6 @@ def save_seen_deals(seen_ids):
         print(f"[!] Error saving {SEEN_DEALS_FILE}: {e}")
 
 def send_telegram_alert(message):
-    """Sends notification to Telegram group or chat."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[!] Telegram credentials missing. Skipping notification.")
         return
@@ -90,14 +88,9 @@ def send_telegram_alert(message):
         print(f"[!] Exception while sending Telegram alert: {e}")
 
 def parse_prices_from_text(card_text):
-    """
-    Extracts 'Now' price and calculates original 'Was' price using both
-    explicit strikethroughs and 'Now $X + You save $Y' fallbacks.
-    """
     now_price = None
     was_price = None
 
-    # Extract Now Price
     now_match = re.search(r'Now\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
     if now_match:
         now_price = float(now_match.group(1))
@@ -106,19 +99,16 @@ def parse_prices_from_text(card_text):
         if price_match:
             now_price = float(price_match.group(1))
 
-    # Try finding explicit Was / Regular Price
     was_match = re.search(r'(?:Was|Strikethrough|Comp)\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
     if was_match:
         was_price = float(was_match.group(1))
 
-    # Fallback: Calculate Was Price via "You save $X.XX"
     if now_price and not was_price:
         save_match = re.search(r'save\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
         if save_match:
             saved_amount = float(save_match.group(1))
             was_price = now_price + saved_amount
 
-    # Calculate Discount Percentage
     if now_price and was_price and was_price > now_price:
         discount_pct = ((was_price - now_price) / was_price) * 100.0
     else:
@@ -145,25 +135,28 @@ def main():
 
         print(f"\nScanning category: {cat_name}...")
 
-        # ScraperAPI Payload Configuration (Bypasses 403 Forbidden)
-        scraper_api_url = "http://api.scraperapi.com"
-        params = {
-            "api_key": SCRAPER_API_KEY,
-            "url": target_url,
-            "render": "true",          # JS rendering to bypass anti-bot challenges
-            "ultra_premium": "true",   # Routes request through residential proxies
-            "country_code": "ca"
+        # Construct safe ScraperAPI URL directly to avoid double-encoding issues
+        encoded_target_url = urllib.parse.quote_plus(target_url)
+        scraper_url = (
+            f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}"
+            f"&url={encoded_target_url}"
+            f"&render=true"
+            f"&country_code=ca"
+            f"&keep_headers=true"
+        )
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
 
         try:
-            resp = requests.get(scraper_api_url, params=params, timeout=90)
+            resp = requests.get(scraper_url, headers=headers, timeout=90)
             if resp.status_code != 200:
                 print(f"  [!] Failed to fetch URL (Status {resp.status_code}): {target_url}")
                 continue
 
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # Locate product tiles on Walmart Canada
             product_cards = soup.find_all("div", {"data-item-id": True})
             if not product_cards:
                 product_cards = soup.find_all("div", {"class": lambda x: x and "sans-serif" in x and "mb1" in x})
@@ -186,16 +179,13 @@ def main():
 
                 now_price, was_price, discount_pct = parse_prices_from_text(card_text)
 
-                # Filter Rule 1: Minimum Discount Threshold
                 if discount_pct < MIN_DISCOUNT_PERCENT:
                     continue
 
-                # Filter Rule 2: Already Processed Deal Check
                 if item_id in seen_deals:
                     print(f"    [Skipped] Item ID {item_id} already sent previously.")
                     continue
 
-                # Extract Title and Link
                 title = "Walmart Deal Item"
                 title_tag = card.find("span", {"data-automation-id": "product-title"}) or card.find("a")
                 if title_tag:
@@ -208,7 +198,6 @@ def main():
                 elif link_tag and link_tag["href"].startswith("/"):
                     link = f"https://www.walmart.ca{link_tag['href']}"
 
-                # Format and Dispatch Alert
                 alert_msg = (
                     f"🚨 *WALMART DEAL FOUND (≥{MIN_DISCOUNT_PERCENT:.0f}% OFF)* 🚨\n\n"
                     f"📦 *Product:* {title}\n"
