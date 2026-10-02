@@ -27,7 +27,7 @@ def load_seen_deals():
 
 def save_seen_deals(deals):
     with open(SEEN_DEALS_FILE, "w") as f:
-        json.dumps(list(deals), f)
+        json.dump(list(deals), f, indent=2)
 
 def send_telegram_alert(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -40,33 +40,54 @@ def send_telegram_alert(message):
     except Exception as e:
         print(f"[!] Telegram send error: {e}")
 
-def parse_next_data(html):
-    """Extract products directly from Walmart's __NEXT_DATA__ JSON script tag."""
-    soup = BeautifulSoup(html, "html.parser")
-    script = soup.find("script", id="__NEXT_DATA__")
-    if not script or not script.string:
-        return []
+def extract_items_from_json(data):
+    """Recursively traverse JSON structure to extract item dictionaries."""
+    items = []
+    
+    if isinstance(data, dict):
+        # Look for common Walmart JSON array containers
+        if "itemStacks" in data:
+            for stack in data.get("itemStacks", []):
+                items.extend(stack.get("items", []))
+        elif "items" in data and isinstance(data["items"], list):
+            items.extend(data["items"])
+        else:
+            for key, val in data.items():
+                items.extend(extract_items_from_json(val))
+    elif isinstance(data, list):
+        for elem in data:
+            items.extend(extract_items_from_json(elem))
+            
+    return items
 
-    try:
-        data = json.loads(script.string)
-        # Traverse Next.js search state
-        item_stacks = (
-            data.get("props", {})
-            .get("pageProps", {})
-            .get("initialData", {})
-            .get("searchResult", {})
-            .get("itemStacks", [])
-        )
-        
-        products = []
-        for stack in item_stacks:
-            for item in stack.get("items", []):
-                if item.get("__typename") == "Product":
-                    products.append(item)
-        return products
-    except Exception as e:
-        print(f"  [!] Error parsing JSON state: {e}")
-        return []
+def parse_walmart_page(html):
+    """Extract products directly from script tags or JSON state."""
+    soup = BeautifulSoup(html, "html.parser")
+    products = []
+
+    # Strategy 1: Check __NEXT_DATA__
+    script = soup.find("script", id="__NEXT_DATA__")
+    if script and script.string:
+        try:
+            data = json.loads(script.string)
+            extracted = extract_items_from_json(data)
+            products.extend(extracted)
+        except Exception as e:
+            print(f"  [!] Failed parsing __NEXT_DATA__: {e}")
+
+    # Strategy 2: Search for raw JSON blobs in inline script tags
+    if not products:
+        scripts = soup.find_all("script", type="application/json")
+        for s in scripts:
+            if s.string and "itemStacks" in s.string:
+                try:
+                    data = json.loads(s.string)
+                    extracted = extract_items_from_json(data)
+                    products.extend(extracted)
+                except Exception:
+                    continue
+
+    return products
 
 def scan_walmart():
     seen_deals = load_seen_deals()
@@ -74,40 +95,64 @@ def scan_walmart():
 
     print("[*] Starting browser-impersonated scan via curl_cffi...")
 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.walmart.com/",
+    }
+
     for cat_name, url in CATEGORIES.items():
         print(f"\nScanning category: {cat_name}...")
         try:
-            # Impersonate Chrome 120 TLS fingerprint
             response = cffi_requests.get(
                 url,
                 impersonate="chrome120",
-                headers={
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": "https://www.walmart.com/",
-                },
+                headers=headers,
                 timeout=15
             )
 
             if response.status_code != 200:
-                print(f"  [HTTP {response.status_code}] Failed to fetch page.")
+                print(f"  [HTTP {response.status_code}] Blocked or missing page.")
                 continue
 
-            products = parse_next_data(response.text)
-            print(f"  [HTTP 200] Extracted {len(products)} products from JSON.")
+            products = parse_walmart_page(response.text)
+            print(f"  [HTTP 200] Extracted {len(products)} candidate items from JSON.")
 
             for prod in products:
-                us_item_id = prod.get("usItemId") or prod.get("id")
-                title = prod.get("name") or "Unknown Product"
-                price_info = prod.get("priceInfo", {}).get("linePrice", "")
-                product_url = f"https://www.walmart.com{prod.get('canonicalUrl', '')}"
+                if not isinstance(prod, dict):
+                    continue
 
-                if us_item_id and us_item_id not in seen_deals:
-                    seen_deals.add(us_item_id)
-                    # Check if marked as clearance/reduced
-                    is_clearance = prod.get("badge", {}).get("text", "").lower() == "clearance"
+                us_item_id = prod.get("usItemId") or prod.get("id")
+                if not us_item_id:
+                    continue
+
+                title = prod.get("name") or prod.get("title") or "Unknown Product"
+                price_info = prod.get("priceInfo", {})
+                price = price_info.get("linePrice") if isinstance(price_info, dict) else ""
+                
+                canonical_url = prod.get("canonicalUrl", "")
+                product_url = f"https://www.walmart.com{canonical_url}" if canonical_url else url
+
+                if us_item_id not in seen_deals:
+                    seen_deals.add(str(us_item_id))
                     
+                    # Detect clearance status
+                    badge_text = ""
+                    badge = prod.get("badge")
+                    if isinstance(badge, dict):
+                        badge_text = badge.get("text", "")
+                    
+                    is_clearance = "clearance" in badge_text.lower() or "reduced" in badge_text.lower()
+
                     if is_clearance:
-                        msg = f"<b>Clearance Deal Found!</b>\n\n<b>Title:</b> {title}\n<b>Price:</b> {price_info}\n<b>Link:</b> {product_url}"
+                        msg = (
+                            f"<b>Clearance Deal Found!</b>\n\n"
+                            f"<b>Title:</b> {title}\n"
+                            f"<b>Price:</b> {price}\n"
+                            f"<b>Link:</b> {product_url}"
+                        )
                         send_telegram_alert(msg)
                         new_alerts += 1
 
