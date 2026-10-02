@@ -3,7 +3,6 @@ import re
 import json
 import time
 import requests
-import urllib.parse
 from bs4 import BeautifulSoup
 
 # ==========================================
@@ -136,19 +135,22 @@ def main():
 
         print(f"\nScanning category: {cat_name}...")
 
+        # ScraperAPI parameters optimized for Walmart anti-bot bypass
         params = {
             "api_key": SCRAPER_API_KEY,
             "url": target_url,
             "render": "true",
-            "premium": "true",
+            "ultra_premium": "true",
             "country_code": "ca"
         }
 
         try:
+            # Send GET request without extra custom headers to prevent proxy mismatch
             resp = requests.get("http://api.scraperapi.com", params=params, timeout=120)
             
             if resp.status_code != 200:
                 print(f"  [!] Failed to fetch URL (Status {resp.status_code}): {target_url}")
+                print(f"      Response preview: {resp.text[:200]}")
                 continue
 
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -209,7 +211,7 @@ def main():
                 seen_deals.add(item_id)
                 new_deals_found += 1
 
-            time.sleep(2)
+            time.sleep(3)
 
         except Exception as e:
             print(f"  [!] Error parsing category {cat_name}: {e}")
