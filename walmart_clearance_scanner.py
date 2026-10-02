@@ -1,228 +1,122 @@
-import os
-import re
 import json
-import time
+import re
+import os
 import requests
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cffi_requests
 
-# ==========================================
-# CONFIGURATION
-# ==========================================
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-
-MIN_DISCOUNT_PERCENT = 25.0
+# Configuration
 SEEN_DEALS_FILE = "seen_deals.json"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-CATEGORIES_TO_SCRAPE = [
-    {
-        "name": "Toys Main Category (Page 1)",
-        "url": "https://www.walmart.ca/en/browse/toys/10011?facet=retailer:Walmart&page=1"
-    },
-    {
-        "name": "Toys Main Category (Page 2)",
-        "url": "https://www.walmart.ca/en/browse/toys/10011?facet=retailer:Walmart&page=2"
-    },
-    {
-        "name": "Building Sets & LEGO",
-        "url": "https://www.walmart.ca/en/browse/toys/building-sets-blocks/10011-20108?facet=retailer:Walmart"
-    },
-    {
-        "name": "Dolls & Dollhouses",
-        "url": "https://www.walmart.ca/en/browse/toys/dolls-dollhouses/10011-20109?facet=retailer:Walmart"
-    },
-    {
-        "name": "Vehicles & Remote Control",
-        "url": "https://www.walmart.ca/en/browse/toys/rc-drones-toy-vehicles/10011-20115?facet=retailer:Walmart"
-    },
-    {
-        "name": "Games & Puzzles",
-        "url": "https://www.walmart.ca/en/browse/toys/games-puzzles/10011-20111?facet=retailer:Walmart"
-    },
-    {
-        "name": "Action Figures",
-        "url": "https://www.walmart.ca/en/browse/toys/action-figures-playsets/10011-20107?facet=retailer:Walmart"
-    }
-]
-
-# Standard realistic Chrome headers
-DEFAULT_HEADERS = {
-    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "accept-language": "en-US,en;q=0.9",
-    "cache-control": "max-age=0",
-    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-fetch-dest": "document",
-    "sec-fetch-mode": "navigate",
-    "sec-fetch-site": "none",
-    "sec-fetch-user": "?1",
-    "upgrade-insecure-requests": "1"
+CATEGORIES = {
+    "Toys Main Category": "https://www.walmart.com/browse/toys/4171",
+    "Building Sets & LEGO": "https://www.walmart.com/browse/toys/lego-building-sets/4171_4186",
+    "Action Figures": "https://www.walmart.com/browse/toys/action-figures/4171_4172",
 }
 
-# ==========================================
-# HELPER FUNCTIONS
-# ==========================================
 def load_seen_deals():
     if os.path.exists(SEEN_DEALS_FILE):
         try:
-            with open(SEEN_DEALS_FILE, "r", encoding="utf-8") as f:
+            with open(SEEN_DEALS_FILE, "r") as f:
                 return set(json.load(f))
-        except Exception as e:
-            print(f"[!] Warning: Failed to load {SEEN_DEALS_FILE}: {e}")
+        except Exception:
+            return set()
     return set()
 
-def save_seen_deals(seen_ids):
-    try:
-        with open(SEEN_DEALS_FILE, "w", encoding="utf-8") as f:
-            json.dump(list(seen_ids), f, indent=2)
-        print(f"[+] Saved {len(seen_ids)} total deal IDs to {SEEN_DEALS_FILE}")
-    except Exception as e:
-        print(f"[!] Error saving {SEEN_DEALS_FILE}: {e}")
+def save_seen_deals(deals):
+    with open(SEEN_DEALS_FILE, "w") as f:
+        json.dumps(list(deals), f)
 
 def send_telegram_alert(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[!] Telegram credentials missing. Skipping notification.")
+        print("[!] Missing Telegram secrets, skipping alert.")
         return
-    
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": False
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code == 200:
-            print("[+] Telegram alert sent successfully!")
-        else:
-            print(f"[!] Telegram API error ({res.status_code}): {res.text}")
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"[!] Exception while sending Telegram alert: {e}")
+        print(f"[!] Telegram send error: {e}")
 
-def parse_prices_from_text(card_text):
-    now_price = None
-    was_price = None
+def parse_next_data(html):
+    """Extract products directly from Walmart's __NEXT_DATA__ JSON script tag."""
+    soup = BeautifulSoup(html, "html.parser")
+    script = soup.find("script", id="__NEXT_DATA__")
+    if not script or not script.string:
+        return []
 
-    now_match = re.search(r'Now\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
-    if now_match:
-        now_price = float(now_match.group(1))
-    else:
-        price_match = re.search(r'\$([0-9]+\.[0-9]{2})', card_text)
-        if price_match:
-            now_price = float(price_match.group(1))
+    try:
+        data = json.loads(script.string)
+        # Traverse Next.js search state
+        item_stacks = (
+            data.get("props", {})
+            .get("pageProps", {})
+            .get("initialData", {})
+            .get("searchResult", {})
+            .get("itemStacks", [])
+        )
+        
+        products = []
+        for stack in item_stacks:
+            for item in stack.get("items", []):
+                if item.get("__typename") == "Product":
+                    products.append(item)
+        return products
+    except Exception as e:
+        print(f"  [!] Error parsing JSON state: {e}")
+        return []
 
-    was_match = re.search(r'(?:Was|Strikethrough|Comp)\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
-    if was_match:
-        was_price = float(was_match.group(1))
-
-    if now_price and not was_price:
-        save_match = re.search(r'save\s*\$?([0-9]+\.?[0-9]*)', card_text, re.IGNORECASE)
-        if save_match:
-            saved_amount = float(save_match.group(1))
-            was_price = now_price + saved_amount
-
-    if now_price and was_price and was_price > now_price:
-        discount_pct = ((was_price - now_price) / was_price) * 100.0
-    else:
-        discount_pct = 0.0
-
-    return now_price, was_price, round(discount_pct, 1)
-
-# ==========================================
-# MAIN EXECUTION
-# ==========================================
-def main():
+def scan_walmart():
     seen_deals = load_seen_deals()
-    new_deals_found = 0
+    new_alerts = 0
 
-    print(f"[*] Starting direct TLS-impersonated scan across {len(CATEGORIES_TO_SCRAPE)} categories...")
+    print("[*] Starting browser-impersonated scan via curl_cffi...")
 
-    # Create a persistent session with Chrome 124 TLS impersonation
-    session = cffi_requests.Session(impersonate="chrome124")
-
-    for category in CATEGORIES_TO_SCRAPE:
-        cat_name = category["name"]
-        target_url = category["url"]
-
+    for cat_name, url in CATEGORIES.items():
         print(f"\nScanning category: {cat_name}...")
-
         try:
-            # Perform direct HTTP GET mimicking modern Chrome browser
-            resp = session.get(target_url, headers=DEFAULT_HEADERS, timeout=30)
-            
-            if resp.status_code != 200:
-                print(f"  [!] Failed to fetch URL (Status {resp.status_code}): {target_url}")
+            # Impersonate Chrome 120 TLS fingerprint
+            response = cffi_requests.get(
+                url,
+                impersonate="chrome120",
+                headers={
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Referer": "https://www.walmart.com/",
+                },
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                print(f"  [HTTP {response.status_code}] Failed to fetch page.")
                 continue
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            
-            product_cards = soup.find_all("div", {"data-item-id": True})
-            if not product_cards:
-                product_cards = soup.find_all("div", {"class": lambda x: x and "sans-serif" in x and "mb1" in x})
+            products = parse_next_data(response.text)
+            print(f"  [HTTP 200] Extracted {len(products)} products from JSON.")
 
-            print(f"  [HTTP 200] Found {len(product_cards)} candidate product cards.")
+            for prod in products:
+                us_item_id = prod.get("usItemId") or prod.get("id")
+                title = prod.get("name") or "Unknown Product"
+                price_info = prod.get("priceInfo", {}).get("linePrice", "")
+                product_url = f"https://www.walmart.com{prod.get('canonicalUrl', '')}"
 
-            for card in product_cards:
-                item_id = card.get("data-item-id")
-                if not item_id:
-                    link_tag = card.find("a", href=True)
-                    if link_tag:
-                        id_match = re.search(r'/([0-9]{8,15})', link_tag["href"])
-                        if id_match:
-                            item_id = id_match.group(1)
-
-                if not item_id:
-                    continue
-
-                card_text = card.get_text(separator=" ")
-
-                now_price, was_price, discount_pct = parse_prices_from_text(card_text)
-
-                if discount_pct < MIN_DISCOUNT_PERCENT:
-                    continue
-
-                if item_id in seen_deals:
-                    print(f"    [Skipped] Item ID {item_id} already sent previously.")
-                    continue
-
-                title = "Walmart Deal Item"
-                title_tag = card.find("span", {"data-automation-id": "product-title"}) or card.find("a")
-                if title_tag:
-                    title = title_tag.get_text(strip=True)
-
-                link = f"https://www.walmart.ca/en/ip/{item_id}"
-                link_tag = card.find("a", href=True)
-                if link_tag and link_tag["href"].startswith("http"):
-                    link = link_tag["href"]
-                elif link_tag and link_tag["href"].startswith("/"):
-                    link = f"https://www.walmart.ca{link_tag['href']}"
-
-                alert_msg = (
-                    f"🚨 *WALMART DEAL FOUND (≥{MIN_DISCOUNT_PERCENT:.0f}% OFF)* 🚨\n\n"
-                    f"📦 *Product:* {title}\n"
-                    f"💰 *Now Price:* ${now_price:.2f}\n"
-                    f"🏷️ *Was Price:* ${was_price:.2f}\n"
-                    f"🔥 *Discount:* {discount_pct}%\n\n"
-                    f"🔗 [View Product on Walmart.ca]({link})"
-                )
-
-                print(f"    [!] MATCH FOUND: {title} ({discount_pct}% off). Sending Telegram alert...")
-                send_telegram_alert(alert_msg)
-
-                seen_deals.add(item_id)
-                new_deals_found += 1
-
-            # Brief pause between category endpoints to mimic natural browsing pacing
-            time.sleep(3)
+                if us_item_id and us_item_id not in seen_deals:
+                    seen_deals.add(us_item_id)
+                    # Check if marked as clearance/reduced
+                    is_clearance = prod.get("badge", {}).get("text", "").lower() == "clearance"
+                    
+                    if is_clearance:
+                        msg = f"<b>Clearance Deal Found!</b>\n\n<b>Title:</b> {title}\n<b>Price:</b> {price_info}\n<b>Link:</b> {product_url}"
+                        send_telegram_alert(msg)
+                        new_alerts += 1
 
         except Exception as e:
-            print(f"  [!] Error parsing category {cat_name}: {e}")
+            print(f"  [!] Category fetch failed: {e}")
 
     save_seen_deals(seen_deals)
-    print(f"\n[*] Run complete. Total new alerts dispatched: {new_deals_found}")
+    print(f"\n[+] Saved {len(seen_deals)} total deal IDs to {SEEN_DEALS_FILE}")
+    print(f"[*] Run complete. Total new alerts dispatched: {new_alerts}")
 
 if __name__ == "__main__":
-    main()
+    scan_walmart()
