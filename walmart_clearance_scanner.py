@@ -18,32 +18,32 @@ SEEN_DEALS_FILE = "seen_deals.json"
 
 CATEGORIES_TO_SCRAPE = [
     {
-        "name": "Toys & Games (Page 1)",
-        "url": "https://www.walmart.ca/en/search?q=toys&page=1&facet=retailer:Walmart"
+        "name": "Toys Main Category (Page 1)",
+        "url": "https://www.walmart.ca/en/browse/toys/10011?facet=retailer:Walmart&page=1"
     },
     {
-        "name": "Toys & Games (Page 2)",
-        "url": "https://www.walmart.ca/en/search?q=toys&page=2&facet=retailer:Walmart"
+        "name": "Toys Main Category (Page 2)",
+        "url": "https://www.walmart.ca/en/browse/toys/10011?facet=retailer:Walmart&page=2"
     },
     {
-        "name": "LEGO Deals",
-        "url": "https://www.walmart.ca/en/search?q=lego&facet=retailer:Walmart"
+        "name": "Building Sets & LEGO",
+        "url": "https://www.walmart.ca/en/browse/toys/building-sets-blocks/10011-20108?facet=retailer:Walmart"
     },
     {
-        "name": "Dolls & Playsets Deals",
-        "url": "https://www.walmart.ca/en/search?q=dolls&facet=retailer:Walmart"
+        "name": "Dolls & Dollhouses",
+        "url": "https://www.walmart.ca/en/browse/toys/dolls-dollhouses/10011-20109?facet=retailer:Walmart"
     },
     {
-        "name": "Vehicles & Hot Wheels Deals",
-        "url": "https://www.walmart.ca/en/search?q=vehicles&facet=retailer:Walmart"
+        "name": "Vehicles & Remote Control",
+        "url": "https://www.walmart.ca/en/browse/toys/rc-drones-toy-vehicles/10011-20115?facet=retailer:Walmart"
     },
     {
-        "name": "Board Games Deals",
-        "url": "https://www.walmart.ca/en/search?q=games&facet=retailer:Walmart"
+        "name": "Games & Puzzles",
+        "url": "https://www.walmart.ca/en/browse/toys/games-puzzles/10011-20111?facet=retailer:Walmart"
     },
     {
-        "name": "Action Figures & Jurassic World",
-        "url": "https://www.walmart.ca/en/search?q=jurassic+world&facet=retailer:Walmart"
+        "name": "Action Figures",
+        "url": "https://www.walmart.ca/en/browse/toys/action-figures-playsets/10011-20107?facet=retailer:Walmart"
     }
 ]
 
@@ -136,17 +136,15 @@ def main():
 
         print(f"\nScanning category: {cat_name}...")
 
-        # ScraperAPI Anti-Bot Bypass Payload
         params = {
             "api_key": SCRAPER_API_KEY,
             "url": target_url,
             "render": "true",
-            "antibot": "true",
+            "premium": "true",
             "country_code": "ca"
         }
 
         try:
-            # Send request using ScraperAPI's native parameter structure
             resp = requests.get("http://api.scraperapi.com", params=params, timeout=120)
             
             if resp.status_code != 200:
@@ -155,7 +153,6 @@ def main():
 
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # Extract product tiles
             product_cards = soup.find_all("div", {"data-item-id": True})
             if not product_cards:
                 product_cards = soup.find_all("div", {"class": lambda x: x and "sans-serif" in x and "mb1" in x})
@@ -212,8 +209,7 @@ def main():
                 seen_deals.add(item_id)
                 new_deals_found += 1
 
-            # 3-second delay between endpoints to prevent rate throttling
-            time.sleep(3)
+            time.sleep(2)
 
         except Exception as e:
             print(f"  [!] Error parsing category {cat_name}: {e}")
